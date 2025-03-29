@@ -3,11 +3,26 @@ services:
     image: postgres:16-alpine
     restart: always
     env_file:
-      - .env
+      - posts/.env
     ports:
       - "5433:5432"
     volumes:
       - my_db:/var/lib/postgresql/data
+
+  posts:
+    container_name: posts
+    restart: always
+    build: posts
+    ports:
+      - "8001:8000"
+    depends_on:
+      - db
+    env_file:
+      - posts/.env
+    volumes:
+      - ./posts:/app
+    command: >
+      sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
 volumes:
   my_db:
