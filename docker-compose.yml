@@ -1,6 +1,45 @@
+version: '3.8'
+
 services:
+  zookeeper:
+    image: wurstmeister/zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    networks:
+      - kafka-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    container_name: kafka
+    environment:
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092
+      - KAFKA_CREATE_TOPICS=post_created:1:1
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+    ports:
+      - "9092:9092"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    networks:
+      - kafka-net
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--list", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
   db:
     image: postgres:16-alpine
+    container_name: db
     restart: always
     env_file:
       - posts/.env
@@ -8,21 +47,50 @@ services:
       - "5433:5432"
     volumes:
       - my_db:/var/lib/postgresql/data
+    networks:
+      - kafka-net
 
   posts:
     container_name: posts
     restart: always
-    build: posts
+    build: ./posts
     ports:
       - "8001:8000"
     depends_on:
-      - db
+      db:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     env_file:
       - posts/.env
     volumes:
       - ./posts:/app
     command: >
       sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    networks:
+      - kafka-net
+
+  notifications:
+    container_name: notifications
+    restart: always
+    build: ./notifications
+    ports:
+      - "8002:8000"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file:
+      - notifications/.env
+    volumes:
+      - ./notifications:/app
+    command: >
+      sh -c "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    networks:
+      - kafka-net
+
+networks:
+  kafka-net:
+    driver: bridge
 
 volumes:
   my_db:

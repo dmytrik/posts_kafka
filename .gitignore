@@ -238,6 +238,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+notifications/.env
 posts/.env
 .venv
 env/
